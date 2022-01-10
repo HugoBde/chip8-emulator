@@ -139,11 +139,10 @@ impl Emulator {
             let mut opcode : usize = self.memory[self.pc] as usize;
             opcode <<= 8;
             opcode += self.memory[self.pc + 1] as usize;
-
             self.run_instruction(opcode);
             self.pc+=2;
 
-            std::thread::sleep(Duration::from_nanos(1_000_000_000 / 700_000_000));
+            std::thread::sleep(Duration::from_millis(1_000 / 144));
         }
     }
 
@@ -226,7 +225,7 @@ impl Emulator {
                 0x0015 => self.set_dt((opcode & 0x0F00) >> 8),
                 0x0018 => self.set_st((opcode & 0x0F00) >> 8),
                 0x001E => self.add_ireg_reg((opcode & 0x0F00) >> 8),
-                0x0029 => self.set_ireg_font((opcode & 0x0F00) >> 8),
+                0x0029 => self.set_ireg_font((opcode & 0x0FFF) >> 8),
                 0x0033 => self.store_bcd_reg((opcode & 0x0F00) >> 8),
                 0x0055 => self.store_regs((opcode & 0x0F00) >> 8),
                 0x0065 => self.read_regs((opcode & 0x0F00) >> 8),
@@ -238,6 +237,7 @@ impl Emulator {
 
     fn clear_display(&mut self) {
         self.display_buffer = [[false; 64]; 32];
+        self.console_print_display();
         self.display_flip();
     }
 
@@ -247,8 +247,7 @@ impl Emulator {
     }
 
     fn jump_addr(&mut self, nnn: usize) {
-        self.pc = nnn;
-        self.pc -= 2;
+        self.pc = nnn - 2;
     }
 
     fn call_addr(&mut self, nnn: usize) {
@@ -280,7 +279,7 @@ impl Emulator {
     }
 
     fn add_reg_byte(&mut self, x: usize, byte: usize) {
-        self.v[x] = self.v[x].saturating_add(byte as u8);
+        self.v[x] = self.v[x].wrapping_add(byte as u8);
     }
 
     fn set_reg_reg(&mut self, x: usize, y: usize) {
@@ -302,7 +301,7 @@ impl Emulator {
     fn add_reg_reg(&mut self, x: usize, y: usize) {
         let total = self.v[x] as usize + self.v[y] as usize;
         if total > 255 {
-            self.v[x] = 255;
+            self.v[x] = total as u8 & 0xFF;
             self.v[0xF] = 1;
         } else {
             self.v[x] = total as u8;
@@ -312,11 +311,10 @@ impl Emulator {
     fn sub_reg_reg(&mut self, x: usize, y: usize) {
         if self.v[x] > self.v[y] {
             self.v[0xF] = 1;
-            self.v[x] -= self.v[y];
         } else {
             self.v[0xF] = 0;
-            self.v[x] = 0;
         }
+        self.v[x] = self.v[x].wrapping_sub(self.v[y]);
     }
 
     fn shift_right(&mut self, x: usize) {
@@ -367,12 +365,14 @@ impl Emulator {
                 self.display_buffer[row as usize][col as usize] = match byte >> (7 - i) & 1 == 1 {
                     true => {
                         // set collision flag
+                        self.v[0xF] = 1;
                         true
                     }
                     false => false,
                 };
             }
         }
+        self.console_print_display();
         self.display_flip();
     }
 
