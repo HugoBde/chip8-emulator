@@ -2,17 +2,21 @@ use crate::sound::SquareWave;
 
 use rand::prelude::random;
 use sdl2::audio::{AudioDevice, AudioSpecDesired};
-use sdl2::{EventPump, EventSubsystem};
 use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 use sdl2::render::Canvas;
 use sdl2::video::Window;
+use sdl2::{EventPump, EventSubsystem};
 
 use std::fs::File;
 use std::io::Read;
 use std::time::{Duration, Instant};
+
+fn shit_pants(pc: usize, opcode: usize) {
+    panic!("Incorrect opcode: {:#X} @ {:#X}", opcode, pc);
+}
 
 const FONT: [u8; 80] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
@@ -120,11 +124,14 @@ impl Emulator {
 
     pub fn run(&mut self) {
         let mut last_tick = Instant::now();
-        'main : loop {
+        'main: loop {
             match self.event_pump.poll_event() {
-                Some(Event::Quit{..}) => break 'main,
-                Some(Event::Window{win_event: WindowEvent::Close, ..}) => break 'main,
-                _ => {},
+                Some(Event::Quit { .. }) => break 'main,
+                Some(Event::Window {
+                    win_event: WindowEvent::Close,
+                    ..
+                }) => break 'main,
+                _ => {}
             }
             // Decay timers if last decay occured over 1/60 seconds ago
             if last_tick.elapsed() > Duration::from_millis(1_000 / 60) {
@@ -135,14 +142,15 @@ impl Emulator {
                 }
                 self.delay_timer = self.delay_timer.saturating_sub(1);
             }
-            
-            let mut opcode : usize = self.memory[self.pc] as usize;
+            // let mut shit: [u8;512] = [0; 512];
+            // std::io::stdin().read(&mut shit);
+            let mut opcode: usize = self.memory[self.pc] as usize;
             opcode <<= 8;
             opcode += self.memory[self.pc + 1] as usize;
             self.run_instruction(opcode);
-            self.pc+=2;
+            self.pc += 2;
 
-            std::thread::sleep(Duration::from_millis(1_000 / 144));
+            std::thread::sleep(Duration::from_millis(1_000 / 600));
         }
     }
 
@@ -201,7 +209,7 @@ impl Emulator {
                 0x6 => self.shift_right((opcode & 0x0F00) >> 8),
                 0x7 => self.sub_not_borrow((opcode & 0x0F00) >> 8, (opcode & 0x00F0) >> 4),
                 0xE => self.shit_left((opcode & 0x0F00) >> 8),
-                _ => panic!("Incorrect opcode"),
+                _ => shit_pants(self.pc, opcode),
             },
             0x9000..=0x9FFF => {
                 self.skip_not_equal_reg_reg((opcode & 0x0F00) >> 8, (opcode & 0x00F0) >> 4)
@@ -217,7 +225,7 @@ impl Emulator {
             0xE000..=0xEFFF => match opcode & 0x00FF {
                 0x009E => self.skip_key_pressed((opcode & 0x0F00) >> 8),
                 0x00A1 => self.skip_key_not_pressed((opcode & 0x0F00) >> 8),
-                _ => panic!("Incorrect opcode"),
+                _ => shit_pants(self.pc, opcode),
             },
             0xF000..=0xFFFF => match opcode & 0x00FF {
                 0x0007 => self.set_from_dt((opcode & 0x0F00) >> 8),
@@ -229,76 +237,89 @@ impl Emulator {
                 0x0033 => self.store_bcd_reg((opcode & 0x0F00) >> 8),
                 0x0055 => self.store_regs((opcode & 0x0F00) >> 8),
                 0x0065 => self.read_regs((opcode & 0x0F00) >> 8),
-                _ => panic!("Incorrect opcode"),
+                _ => shit_pants(self.pc, opcode),
             },
-            _ => panic!("Incorrect opcode"),
+            _ => shit_pants(self.pc, opcode),
         }
     }
 
     fn clear_display(&mut self) {
+        println!("{:#X}: CLS", self.pc);
         self.display_buffer = [[false; 64]; 32];
-        self.console_print_display();
         self.display_flip();
     }
 
     fn return_subroutine(&mut self) {
+        println!("{:#X}: RET {}", self.pc, self.sp);
         self.pc = self.stack[self.sp];
         self.sp -= 1;
     }
 
     fn jump_addr(&mut self, nnn: usize) {
+        println!("{:#X}: JMP {:#X}", self.pc, nnn);
         self.pc = nnn - 2;
     }
 
     fn call_addr(&mut self, nnn: usize) {
+        println!("{:#X}: CALL {:#X} {}", self.pc, nnn, self.sp);
         self.sp += 1;
         self.stack[self.sp] = self.pc;
-        self.pc = nnn;
+        self.pc = nnn - 2;
     }
 
     fn skip_equal_reg_byte(&mut self, x: usize, byte: usize) {
+        println!("{:#X}: SE V{:#X}, {:#X}", self.pc, x, byte);
         if self.v[x] == byte as u8 {
             self.pc += 2; // might need to change how this works depending on the implementation of the stack pointer / procram counter
         }
     }
 
     fn skip_not_equal_reg_byte(&mut self, x: usize, byte: usize) {
+        println!("{:#X}: SNE V{:#X}, {:#X}", self.pc, x, byte);
         if self.v[x] != byte as u8 {
             self.pc += 2;
         }
     }
 
     fn skip_equal_reg_reg(&mut self, x: usize, y: usize) {
+        println!("{:#X}: SE V{:#X}, V{:#X}", self.pc, x, y);
         if self.v[x] == self.v[y] {
             self.pc += 2;
         }
     }
 
     fn set_reg_byte(&mut self, x: usize, byte: usize) {
+        println!("{:#X}: LD V{:#X}, {:#X}", self.pc, x, byte);
         self.v[x] = byte as u8;
     }
 
     fn add_reg_byte(&mut self, x: usize, byte: usize) {
+        println!("{:#X}: ADD V{:#X}, {:#X}", self.pc, x, byte);
         self.v[x] = self.v[x].wrapping_add(byte as u8);
     }
 
     fn set_reg_reg(&mut self, x: usize, y: usize) {
+        println!("{:#X}: LD V{:#X}, V{:#X}", self.pc, x, y);
         self.v[x] = self.v[y];
     }
 
     fn or(&mut self, x: usize, y: usize) {
+        println!("{:#X}: OR V{:#X}, V{:#X}", self.pc, x, y);
         self.v[x] |= self.v[y];
     }
 
     fn and(&mut self, x: usize, y: usize) {
+        println!("{:#X}: AND V{:#X}, V{:#X}", self.pc, x, y);
         self.v[x] &= self.v[y];
     }
 
     fn xor(&mut self, x: usize, y: usize) {
+        println!("{:#X}: XOR V{:#X}, V{:#X}", self.pc, x, y);
         self.v[x] ^= self.v[y];
     }
 
     fn add_reg_reg(&mut self, x: usize, y: usize) {
+        println!("{:#X}: ADD V{:#X}, V{:#X}", self.pc, x, y);
         let total = self.v[x] as usize + self.v[y] as usize;
         if total > 255 {
             self.v[x] = total as u8 & 0xFF;
@@ -309,7 +330,8 @@ impl Emulator {
     }
 
     fn sub_reg_reg(&mut self, x: usize, y: usize) {
-        if self.v[x] > self.v[y] {
+        println!("{:#X}: SUB V{:#X}, V{:#X}", self.pc, x, y);
+        if self.v[x] >= self.v[y] {
             self.v[0xF] = 1;
         } else {
             self.v[0xF] = 0;
@@ -318,68 +340,80 @@ impl Emulator {
     }
 
     fn shift_right(&mut self, x: usize) {
+        println!("{:#X}: SHR V{:#X}", self.pc, x);
         self.v[0xF] = self.v[x] & 0x1;
         self.v[x] >>= 1;
     }
 
     fn sub_not_borrow(&mut self, x: usize, y: usize) {
-        if self.v[y] > self.v[x] {
+        println!("{:#X}: SUBN V{:#X}, V{:#X}", self.pc, x, y);
+        if self.v[y] >= self.v[x] {
             self.v[0xF] = 1;
-            self.v[x] = self.v[y] - self.v[x];
         } else {
             self.v[0xF] = 0;
-            self.v[y] = 0;
         }
+        self.v[x] = self.v[y].wrapping_sub(self.v[x]);
     }
 
     fn shit_left(&mut self, x: usize) {
-        self.v[0xF] = self.v[x] & 0x80;
+        println!("{:#X}: SHL V{:#X}", self.pc, x);
+        self.v[0xF] = (self.v[x] & 0x80) >> 7;
         self.v[x] <<= 1;
     }
 
     fn skip_not_equal_reg_reg(&mut self, x: usize, y: usize) {
+        println!("{:#X}: SNE V{:#X}, V{:#X}", self.pc, x, y);
         if self.v[x] != self.v[y] {
             self.pc += 2;
         }
     }
 
     fn set_ireg(&mut self, nnn: usize) {
+        println!("{:#X}: LD I, {:#X}", self.pc, nnn);
         self.ireg = nnn;
     }
 
     fn jump_v0(&mut self, nnn: usize) {
-        self.pc = self.v[0] as usize + nnn;
+        println!("{:#X}: JMP V0, {:#X}", self.pc, nnn);
+        self.pc = self.v[0] as usize + nnn - 2;
     }
 
     fn random(&mut self, x: usize, byte: usize) {
+        println!("{:#X}: RND V{:#X}, {:#X}", self.pc, x, byte);
         self.v[x] = random::<u8>() & byte as u8;
     }
 
     fn draw(&mut self, x: usize, y: usize, n: usize) {
+        println!("{:#X}: DRW V{:#X}, V{:#X}, {:#X}", self.pc, x, y, n);
+        self.v[0xF] = 0;
         for offset in 0..n {
             let row = (self.v[y] + offset as u8) % 32;
             let byte = self.memory[self.ireg + offset];
 
             for i in 0..8 {
                 let col = (self.v[x] + i) % 64;
-                self.display_buffer[row as usize][col as usize] = match byte >> (7 - i) & 1 == 1 {
-                    true => {
-                        // set collision flag
+                let current = &mut self.display_buffer[row as usize][col as usize];
+                if byte >> (7 - i) & 1 == 1 {
+                    if *current {
                         self.v[0xF] = 1;
-                        true
+                        *current = false;
+                    } else {
+                        *current = true;
                     }
-                    false => false,
-                };
+                }
             }
         }
-        self.console_print_display();
         self.display_flip();
     }
 
     fn skip_key_pressed(&mut self, x: usize) {
+        println!("{:#X}: SKP V{:#X}", self.pc, x);
         let event = self.event_pump.poll_event();
         match event {
-            Some(Event::KeyDown{keycode: Some(keycode), ..}) => {
+            Some(Event::KeyDown {
+                keycode: Some(keycode),
+                ..
+            }) => {
                 if Some(self.v[x]) == interpret_key(keycode) {
                     self.pc += 2;
                 }
@@ -389,9 +423,13 @@ impl Emulator {
     }
 
     fn skip_key_not_pressed(&mut self, x: usize) {
+        println!("{:#X}: SKNP V{:#X}", self.pc, x);
         let event = self.event_pump.poll_event();
         match event {
-            Some(Event::KeyDown{keycode: Some(keycode), ..}) => {
+            Some(Event::KeyDown {
+                keycode: Some(keycode),
+                ..
+            }) => {
                 if Some(self.v[x]) == interpret_key(keycode) {
                     self.pc -= 2;
                 }
@@ -402,13 +440,18 @@ impl Emulator {
     }
 
     fn set_from_dt(&mut self, x: usize) {
+        println!("{:#X}: LD V{:#X}, DT", self.pc, x);
         self.v[x] = self.delay_timer;
     }
 
     fn wait_key_press(&mut self, x: usize) {
+        println!("{:#X}: LD V{:#X}, K", self.pc, x);
         for event in self.event_pump.poll_iter() {
             match event {
-                Event::KeyDown{keycode: Some(keycode), ..} => {
+                Event::KeyDown {
+                    keycode: Some(keycode),
+                    ..
+                } => {
                     if let Some(key) = interpret_key(keycode) {
                         self.v[x] = key;
                         break;
@@ -420,10 +463,12 @@ impl Emulator {
     }
 
     fn set_dt(&mut self, x: usize) {
+        println!("{:#X}: LD DT, V{:#X}", self.pc, x);
         self.delay_timer = self.v[x];
     }
 
     fn set_st(&mut self, x: usize) {
+        println!("{:#X}: LD ST, V{:#X}", self.pc, x);
         self.sound_timer = self.v[x];
         if self.sound_timer > 0 {
             self.sound_device.resume();
@@ -431,26 +476,31 @@ impl Emulator {
     }
 
     fn add_ireg_reg(&mut self, x: usize) {
+        println!("{:#X}: ADD I, V{:#X}", self.pc, x);
         self.ireg += self.v[x] as usize;
     }
 
     fn set_ireg_font(&mut self, x: usize) {
-        self.ireg = self.v[x] as usize;
+        println!("{:#X}: LD F, V{:#X}", self.pc, x);
+        self.ireg = self.v[x] as usize * 5;
     }
 
     fn store_bcd_reg(&mut self, x: usize) {
+        println!("{:#X}: LD B, V{:#X}", self.pc, x);
         self.memory[self.ireg] = self.v[x] / 100;
         self.memory[self.ireg + 1] = self.v[x] % 100 / 10;
         self.memory[self.ireg + 2] = self.v[x] % 10;
     }
 
     fn store_regs(&mut self, x: usize) {
+        println!("{:#X}: LD [I], V{:#X}", self.pc, x);
         for i in 0..=x {
             self.memory[self.ireg + i] = self.v[i];
         }
     }
 
     fn read_regs(&mut self, x: usize) {
+        println!("{:#X}: LD V{:#X}, [I]", self.pc, x);
         for i in 0..=x {
             self.v[i] = self.memory[self.ireg + i];
         }
@@ -475,6 +525,6 @@ fn interpret_key(keycode: Keycode) -> Option<u8> {
         Keycode::D => Some(0xD),
         Keycode::E => Some(0xE),
         Keycode::F => Some(0xF),
-        _ => None
+        _ => None,
     }
 }
