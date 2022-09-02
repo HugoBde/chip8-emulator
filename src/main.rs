@@ -2,6 +2,7 @@ use chip_8::emulator::Emulator;
 use std::env::args;
 
 fn main() {
+    println!("Welcome to my Chip-8 emulator");
     let args: Vec<String> = args().collect();
     let file;
     if args.len() < 2 {
